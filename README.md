@@ -78,4 +78,4 @@ Build with `tools/meos-build` from the MeOS App SDK, or `build.sh` (uses `pip in
 
 ## License
 
-MIT (same as the SDK). "Super Mario" is a trademark of Nintendo; this is an unofficial fan-made clone with original code and graphics.
+（未設定）"Super Mario" is a trademark of Nintendo; this is an unofficial fan-made clone with original code and graphics.
