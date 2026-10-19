@@ -37,7 +37,7 @@ enum { S_TITLE, S_PLAY, S_DYING, S_FLAG, S_WALK, S_OVER, S_CLEAR };
 
 static float px, py, vx, vy;
 static int face = 1, onground, state, lives, score, coins, time_left, tick, phase, state_t;
-static int left_t, right_t, jump_buf, cam, hi_score;
+static int left_t, right_t, jump_buf, cam, hi_score, time_sub;
 
 typedef struct { float x, y, vx, vy; int alive, squash; } Enemy;
 static Enemy en[MAXE];
@@ -287,21 +287,14 @@ static void num_text(int x, int y, const char *label, unsigned v, int digits, un
     meos_display_text(x, y, b, n, fg, bg, 2);
 }
 
-static void draw_background(void)
+static void draw_background(int top)                          /* top: first row to repaint (the HUD strip is kept) */
 {
-    rect(0, 0, SW, SH, SKY);
+    rect(0, top, SW, SH - top, SKY);
     int c3 = cam / 3;
     for (int i = -1; i < 3; i++) {                               /* clouds */
         int cx = i * 520 + 120 - c3 % 520, cy = 90 + ((i + 5) % 3) * 46;
         rect(cx, cy, 120, 34, C(255, 255, 255));
         rect(cx + 20, cy - 18, 70, 24, C(255, 255, 255));
-        rect(cx + 8, cy + 30, 104, 8, C(225, 235, 255));
-    }
-    int c2 = cam / 2;
-    for (int i = -1; i < 4; i++) {                               /* hills */
-        int hx = i * 640 + 160 - c2 % 640;
-        meos_display_tri(hx, GROUND * TS, hx + 280, GROUND * TS, hx + 140, GROUND * TS - 130, C(30, 150, 60));
-        meos_display_tri(hx + 60, GROUND * TS, hx + 220, GROUND * TS, hx + 140, GROUND * TS - 78, C(70, 190, 70));
     }
 }
 
@@ -317,22 +310,19 @@ static void draw_tile(char c, int x, int y, int ty)
         break;
     case 'B':
         rect(x, y, TS, TS, C(190, 90, 30));
-        rect(x, y + 15, TS, 3, C(80, 30, 5)); rect(x, y + 31, TS, 3, C(80, 30, 5)); rect(x, y + 46, TS, 2, C(80, 30, 5));
-        rect(x + 22, y, 3, 16, C(80, 30, 5)); rect(x + 10, y + 16, 3, 16, C(80, 30, 5)); rect(x + 34, y + 16, 3, 16, C(80, 30, 5)); rect(x + 22, y + 32, 3, 16, C(80, 30, 5));
+        rect(x, y + 23, TS, 3, C(80, 30, 5));
+        rect(x + 22, y, 3, 23, C(80, 30, 5)); rect(x + 10, y + 26, 3, 22, C(80, 30, 5));
         break;
     case '?': {
         int f = (tick / 6) % 6;
         unsigned col = f == 0 ? C(255, 235, 120) : f == 1 ? C(255, 210, 70) : C(250, 170, 30);
         rect(x, y, TS, TS, C(110, 60, 10));
         rect(x + 3, y + 3, TS - 6, TS - 6, col);
-        rect(x + 6, y + 6, 4, 4, C(110, 60, 10)); rect(x + TS - 10, y + 6, 4, 4, C(110, 60, 10));
-        rect(x + 6, y + TS - 10, 4, 4, C(110, 60, 10)); rect(x + TS - 10, y + TS - 10, 4, 4, C(110, 60, 10));
         text(x + 12, y + 10, "?", C(110, 60, 10), col, 3);
         break; }
     case 'U':
         rect(x, y, TS, TS, C(90, 60, 30));
         rect(x + 3, y + 3, TS - 6, TS - 6, C(160, 120, 80));
-        rect(x + 6, y + 6, 4, 4, C(90, 60, 30)); rect(x + TS - 10, y + 6, 4, 4, C(90, 60, 30));
         break;
     case 'S':
         rect(x, y, TS, TS, C(120, 80, 50));
@@ -366,10 +356,24 @@ static void draw_tiles(void)
 {
     int t0 = cam / TS, t1 = (cam + SW) / TS + 1;
     if (t1 >= LW) t1 = LW - 1;
+    for (int ty = GROUND; ty <= GROUND + 1; ty++) {                 /* ground: one fill per run of tiles, not per tile */
+        int tx = t0;
+        while (tx <= t1) {
+            if (map[ty][tx] != 'G') { tx++; continue; }
+            int e = tx;
+            while (e + 1 <= t1 && map[ty][e + 1] == 'G') e++;
+            int x = tx * TS - cam, w = (e - tx + 1) * TS, y = ty * TS;
+            rect(x, y, w, TS, C(200, 100, 40));
+            rect(x, y + TS - 3, w, 3, C(110, 50, 10));
+            if (ty == GROUND) { rect(x, y, w, 10, C(80, 200, 60)); rect(x, y + 10, w, 3, C(40, 130, 30)); }
+            for (int k = tx; k <= e; k += 2) rect(k * TS - cam + TS - 3, y, 3, TS, C(110, 50, 10));
+            tx = e + 1;
+        }
+    }
     for (int ty = 0; ty < LH; ty++)
         for (int tx = t0; tx <= t1; tx++) {
             char c = map[ty][tx];
-            if (c == '.') continue;
+            if (c == '.' || c == 'G') continue;
             int y = ty * TS;
             if (tx == bump_x && ty == bump_y && bump_t > 0) y -= (bump_t > 3 ? 3 - (6 - bump_t) : bump_t) * 4;
             draw_tile(c, tx * TS - cam, y, ty);
@@ -450,14 +454,25 @@ static void draw_pops(void)
     }
 }
 
+static int hud_sig[5] = { -1, -1, -1, -1, -1 };
+
+static int hud_changed(void)                                     /* the HUD strip survives between frames: redraw it only on change */
+{
+    int v[5] = { score, coins, lives, time_left, state };
+    int ch = 0;
+    for (int i = 0; i < 5; i++) if (v[i] != hud_sig[i]) { hud_sig[i] = v[i]; ch = 1; }
+    return ch;
+}
+
 static void draw_scene(void)
 {
-    draw_background();
+    int hud = hud_changed();
+    draw_background(hud ? 0 : 56);
     draw_tiles();
     for (int i = 0; i < n_en; i++) if (en[i].alive) draw_enemy(&en[i]);
     draw_player();
     draw_pops();
-    draw_hud();
+    if (hud) draw_hud();
 }
 
 static void center_text(int y, const char *s, unsigned fg, unsigned bg, int scale)
@@ -472,12 +487,19 @@ void _start(void)
 {
     if (meos_display_open() < 0) { meos_puts("this app needs the display permission\n"); return; }
     meos_display_clip(0, 0, SW, SH);
-    unsigned last = meos_uptime_ms();
+    unsigned last = meos_uptime_ms(), prev = last;
+    int acc = 0;
     state = S_TITLE; state_t = 0; hi_score = 0;
     build(); reset_player();
 
     for (;;) {
         tick++; state_t++;
+        /* The game runs at 30 steps per second of real time: if drawing is slow, several steps are done per picture. */
+        unsigned now_ms = meos_uptime_ms();
+        acc += (int)(now_ms - prev); prev = now_ms;
+        int steps = acc / 33;
+        if (steps < 1) steps = 1;
+        if (steps > 3) { steps = 3; acc = 0; } else { acc -= steps * 33; if (acc < 0) acc = 0; }
         int k;
         int quit = 0;
         while ((k = meos_getkey()) >= 0) {
@@ -493,13 +515,15 @@ void _start(void)
         }
         if (quit) { meos_display_close(); return; }
 
-        for (int i = 0; i < 8; i++) if (pops[i].t > 0) pops[i].t--;
-        if (bump_t > 0) bump_t--;
+        for (int n = state == S_PLAY ? steps : 1; n > 0; n--) {
+            for (int i = 0; i < 8; i++) if (pops[i].t > 0) pops[i].t--;
+            if (bump_t > 0) bump_t--;
+        }
 
         switch (state) {
         case S_TITLE:
             cam = (tick * 3) % 3000; if (cam > (LW * TS - SW)) cam = 0;
-            draw_background(); draw_tiles();
+            draw_background(0); draw_tiles(); hud_sig[4] = -1;
             center_text(150, "SUPER MEOS BROS.", C(255, 255, 255), SKY, 6);
             center_text(300, "Arrows / A D: run     Up / W / Space: jump", C(255, 255, 255), SKY, 2);
             center_text(340, "Stomp the goombas, reach the flag!", C(255, 255, 255), SKY, 2);
@@ -509,9 +533,11 @@ void _start(void)
             break;
 
         case S_PLAY:
-            update_player();
-            update_enemies();
-            if (tick % 24 == 0 && --time_left <= 0) die();
+            for (int n = 0; n < steps && state == S_PLAY; n++) {
+                update_player();
+                update_enemies();
+                if (++time_sub >= 24) { time_sub = 0; if (--time_left <= 0) die(); }
+            }
             cam = (int)px - 480;
             if (cam < 0) cam = 0;
             if (cam > LW * TS - SW) cam = LW * TS - SW;
